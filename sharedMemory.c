@@ -3,7 +3,7 @@
 #include <time.h>
 #include <stdlib.h>
 
-int randomArrayGen(int size, double array[][size]) {
+void randomArrayGen(int size, double array[][size]) {
     double randomValue;
     srand ( time ( NULL));
     for (int i = 0; i < size; i++) {
@@ -15,14 +15,13 @@ int randomArrayGen(int size, double array[][size]) {
             array[i][j] = randomValue;
         }
     }
-    return 0;
 }
 
 int main(void) {
 
     printf("---NEW PROGRAM--- \n");
     int integerDimension = 4;
-    double precision = 0.001;
+    double precision = 0.01;
     double array[4][4] = {{1.0, 1.0, 1.0, 1.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}};
     //double (*array)[integerDimension] = malloc(sizeof(double[integerDimension][integerDimension]));
     //randomArrayGen(integerDimension, array);
