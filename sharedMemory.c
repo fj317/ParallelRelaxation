@@ -23,9 +23,9 @@ int main(void) {
     printf("---NEW PROGRAM--- \n");
     int integerDimension = 4;
     double precision = 0.001;
-    //double array[4][4] = {{1.0, 1.0, 1.0, 1.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}};
-    double (*array)[integerDimension] = malloc(sizeof(double[integerDimension][integerDimension]));
-    randomArrayGen(integerDimension, array);
+    double array[4][4] = {{1.0, 1.0, 1.0, 1.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}};
+    //double (*array)[integerDimension] = malloc(sizeof(double[integerDimension][integerDimension]));
+    //randomArrayGen(integerDimension, array);
     double (*newArray)[integerDimension] = malloc(sizeof(double[integerDimension][integerDimension]));;
 
     for (int i = 0; i < integerDimension; i++) {
@@ -66,13 +66,6 @@ int main(void) {
         }
         iterateOnce = 1;
         memcpy(array, newArray, sizeof(double[integerDimension][integerDimension]));
-    //     for (int i = 0; i < integerDimension; i++) {
-    //     for (int j = 0; j < integerDimension; j++) {
-    //         printf(" %lf ", newArray[i][j]);
-    //     }
-    //     printf("\n");
-    // }
-    // printf("\n\n");
     }
 
     printArray: for (int i = 0; i < integerDimension; i++) {
