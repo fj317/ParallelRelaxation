@@ -1,0 +1,14 @@
+#!/bin/sh
+# Account & partition (must have these)
+#SBATCH --account=cm30225
+#SBATCH --partition=teaching
+# Name of job (optional)
+#SBATCH --job-name=relaxationParallel
+# one node
+#SBATCH --nodes=1
+# any normal shell stuff
+pwd
+
+#SBATCH --mail-user=fj317@bath.ac.uk
+# Run the program
+./sharedMemoryParallel
