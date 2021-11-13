@@ -5,18 +5,6 @@
 #include <time.h>
 #include "pthread_barrier.c"
 
-//double **array;
-//double **newArray;
-double array[4][4] = {{1.0, 1.0, 1.0, 1.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}, {1.0, 0.0, 0.0, 0.0}};
-double newArray[4][4];
-//double newArray[initialArraySize][initialArraySize];
-//double array[initialArraySize][initialArraySize];
-//double (*array)[integerDimension] = malloc(sizeof(double[integerDimension][integerDimension]));
-//randomArrayGen(integerDimension, array);
-//double (*newArray)[integerDimension] = malloc(sizeof(double[integerDimension][integerDimension]));;
-int precisionCount = 0;
-pthread_mutex_t precisionMutex;
-
 struct threadParameters {
     int arrayDimensions;
     double precision;
@@ -31,14 +19,11 @@ struct threadParameters {
 };
 
 
-void randomArrayGen(int size, double array[][size]) {
+void randomArrayGen(int size, double **array) {
     double randomValue;
-    srand ( time ( NULL));
+    srand ( (unsigned int)time ( NULL));
     for (int i = 0; i < size; i++) {
         for (int j = 0; j < size; j++) {
-            if (i == 0) {
-                array[i][j] = 1;
-            }
             randomValue = (rand() / (double)RAND_MAX);
             array[i][j] = randomValue;
         }
@@ -58,8 +43,6 @@ void relaxationThread(struct threadParameters *arg) {
     int arrayDimensions = info->arrayDimensions;
     double precision = info->precision;
 
-
-    printf("Hello I'm thead %d\n", localThreadNumber);
     int iterateOnce = 0;
     // barrier to ensure threads dont start iteration before all threads are created and thus loop variables wont cause errors
     pthread_barrier_wait(info->barrier);
@@ -69,27 +52,39 @@ void relaxationThread(struct threadParameters *arg) {
         // average 4 numbers around it
         for (int i = 1 + localThreadNumber; i < arrayDimensions - 1; i+= totalThreads) {
             for (int j = 1; j < arrayDimensions - 1; j++) {
-                result = (array[i-1][j] + array[i+1][j] + array[i][j-1] + array[i][j+1]) / 4;
+                result = (info->array[i-1][j] + info->array[i+1][j] + info->array[i][j-1] + info->array[i][j+1]) / 4;
                 // check if precision is reached for ALL values
-                if (precisionCount == (arrayDimensions-2)*(arrayDimensions-2)) {
-                    // kill thread as finished
-                    pthread_exit(NULL);
-                } else if (result - newArray[i][j] < precision && iterateOnce == 1) {
+                if (info->precisionCount == (arrayDimensions-2)*(arrayDimensions-2)) {
+                    // exit loops because precision is met
+                    goto breakLoops;
+                } else if (result - info->newArray[i][j] < precision && iterateOnce == 1) {
+                    // lock so precisionCount can be updated
+                    pthread_mutex_lock(info->precisionMutex);
                     // if precision not reached for ALL values, but is reached for this value then add 1 to the precisionCount
-                    precisionCount++;
+                    info->precisionCount++;
+                    pthread_mutex_unlock(info->precisionMutex);
                 } else {
                     // if precision isn't reached then update the value and reset the precisionCount
-                    newArray[i][j] = result;
-                    precisionCount = 0;
+                    info->newArray[i][j] = result;
+                    // lock so precisionCount can be updated without errors
+                    pthread_mutex_lock(info->precisionMutex);
+                    info->precisionCount = 0;
+                    
+                    pthread_mutex_unlock(info->precisionMutex);
                 }
             }
         }
         iterateOnce = 1;
         // barrier to ensure threads dont start next iteration before all threads are finished
-        pthread_barrier_wait(info->barrier);
+        breakLoops: pthread_barrier_wait(info->barrier);
         // if the first thread then do the memory copy required
         if (localThreadNumber == 0) {
-            memcpy(array, newArray, sizeof(double) * arrayDimensions * arrayDimensions);
+            memcpy(info->array, info->newArray, sizeof(*info->array) * (unsigned long)arrayDimensions);
+        }
+        if (info->precisionCount == (arrayDimensions-2)*(arrayDimensions-2)) {
+            // kill all thread as finished
+            printf("thread %d dead\n", localThreadNumber);
+            pthread_exit(NULL);
         }
         // barrier again to stop threads from continuing until thread 1 has finished copying memory
         pthread_barrier_wait(info->barrier);
@@ -99,21 +94,34 @@ void relaxationThread(struct threadParameters *arg) {
 int main(void) {
 
     printf("---NEW PROGRAM--- \n");
-    int dimensions = 4;
-    double precision = 0.001;
+    int dimensions = 50;
+    double precision = 0.01;
     int totalThreads = 0;
     int precisionCount = 0;
+    double **array = malloc((unsigned long)dimensions * sizeof(double *));
+    double **newArray = malloc((unsigned long)dimensions * sizeof(double *));
+    for (int i = 0; i < dimensions; i++) {
+        array[i] = malloc((unsigned long)dimensions * sizeof(double));
+        newArray[i] = malloc((unsigned long)dimensions * sizeof(double));
+    }
+    randomArrayGen(dimensions, array);
+    for (int i = 0; i < dimensions; i++) {
+        for (int j = 0; j < dimensions; j++) {
+            printf(" %lf ", array[i][j]);
+        }
+        printf("\n");
+    }
+    printf("\n\n");
 
     struct threadParameters *info = malloc(sizeof(struct threadParameters));
-    info->array = malloc(dimensions * dimensions * sizeof(double));
-    info->newArray = malloc(dimensions * dimensions * sizeof(double));
+    info->array = array;
+    info->newArray = newArray;
     info->precision = precision;
     info->arrayDimensions = dimensions;
     // number of threads is the number of rows to be operated on
     totalThreads = dimensions - 2;
     info->totalThreads = totalThreads;
     info->precisionCount = precisionCount;
-    
 
     pthread_mutex_t precisionMutex;
     pthread_mutex_init(&precisionMutex, NULL);
@@ -124,11 +132,13 @@ int main(void) {
     info->threadNumberMutex = &threadNumberMutex;
 
     pthread_barrier_t barrier;
-    pthread_barrier_init(&barrier, NULL, totalThreads);
+    pthread_barrier_init(&barrier, NULL, (unsigned int)totalThreads);
     info->barrier = &barrier;
 
     // copy values from array into newArray so values can be changed in newArray and won't cause any problems
-    memcpy(newArray, array, sizeof(double) * dimensions * dimensions);
+    memcpy(newArray, array, sizeof(*array) * (unsigned long)dimensions);
+
+    printf("Starting threads\n");
 
     pthread_t threads[44];
     for (int x = 0; x < totalThreads; x++) {
