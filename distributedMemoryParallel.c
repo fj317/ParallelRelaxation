@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 // function to randomly generate double values and put them into array
 void randomArrayGen(int size, double *array) {
@@ -40,21 +41,38 @@ void updateRow(double *array, double*row, int rowNum, int size) {
     }
 }
 
+void getArray(double *array, double*valueArray, int rowNum, int dimensions, int elementNumber) {
+    int startIndex = rowNum * dimensions;
+    for (int i = startIndex; i < startIndex + elementNumber; i ++) {
+        array[i - startIndex] = valueArray[i];
+    }
+}
+
+void updateArray(double *array, double*valueArray, int rowNum, int dimensions, int elementNumber) {
+    int startIndex = rowNum * dimensions;
+    for (int i = startIndex; i < startIndex + elementNumber; i ++) {
+        array[i] = valueArray[i - startIndex];
+    }
+}
+
 
 int main (void) {
     MPI_Init(NULL, NULL);
-    int dimensions = 6;
+    time_t start, end;
+    time(&start);
+    int dimensions = 8;
     double precision = 0.01;
     int totalProcesses;
     MPI_Comm_size(MPI_COMM_WORLD, &totalProcesses);
     int precisionCount = 0;
     // processWorkload gives the number of rows that each process will work on
-    int processWorkload = (dimensions-2) / totalProcesses;
+    int processWorkload;
+    int *totalProcessWorkload = malloc((unsigned long)totalProcesses * sizeof(int));
     int processNumber;
     MPI_Comm_rank(MPI_COMM_WORLD, &processNumber);
-    double* row = malloc((unsigned long) dimensions * sizeof(double));
-    double *processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
-    double *finishedArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
+    double *row = malloc((unsigned long) dimensions * sizeof(double));
+    double *processArray;
+    double *finishedArray;
     double *array = malloc((unsigned long)dimensions * (unsigned long)dimensions * sizeof(double));
     int recvPrecisionMet;
     int quitLoop = 0;
@@ -62,31 +80,50 @@ int main (void) {
     int currentValue;
     double result;
 
-    // if not root process
-    if (processNumber != 0) {
-        // can free array as unused 
-        free(array);
-    }
-
     if (processNumber == 0) {
         // if process 0, setup array and partition into equal chunks and send to each process
         randomArrayGen(dimensions * dimensions, array);
         printArray(array, dimensions, dimensions);
+        for (int i = 0; i < totalProcesses; i++) {
+            totalProcessWorkload[i] = (int)floor((dimensions-2) / totalProcesses);
+        }
+        if ((dimensions-2) % totalProcesses != 0) {
+            for (int i = 0; i < (dimensions-2) % totalProcesses; i++) {
+                totalProcessWorkload[i]++;
+            }
+        }
+        processWorkload = totalProcessWorkload[0];
+        // send processWorkload to each process
+        for (int i = 1; i < totalProcesses; i++) {
+            MPI_Send(&totalProcessWorkload[i], 1, MPI_INT, i, 1, MPI_COMM_WORLD);
+        }
+        // get space for processArray, use workload of root process as no other process can have higher workload
+        processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
 
+        int startRow = 0;
         // get array that is an equal partition of array for each process
         for (int i = 0; i < totalProcesses; i++) {
-            for (int j = 0; j < processWorkload + 2; j++) {
+            for (int j = 0; j < totalProcessWorkload[i] + 2; j++) {
                 for (int k = 0; k < dimensions; k++) {
-                    processArray[(j * dimensions) + k] = array[(i * processWorkload * dimensions) + (j * dimensions) + k];
-                    //printf("processArray: %d. Array: %d\n", (j * dimensions) + k, (i * processWorkload * dimensions) + (j * dimensions) + k);
+                    processArray[(j * dimensions) + k] = array[((startRow + j) * dimensions) + k];
+                    //printf("processArray: %d. Array: %d\n", (j * dimensions) + k, ((startRow + j) * dimensions) + k);
                 }
             }
+            startRow += totalProcessWorkload[i];
             // send array to the process so it can begin work
-            MPI_Send(processArray, (processWorkload + 2) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
+            MPI_Send(processArray, (totalProcessWorkload[i] + 2) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
         }
+    } else {
+        // if not root process
+        MPI_Recv(&processWorkload, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        // can free array as unused 
+        free(array);
+        free(totalProcessWorkload);
+        processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
     }
-
     MPI_Recv(processArray, (processWorkload + 2) * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    finishedArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
+    //printf("Hey I'm %d and my workload is %d\n", processNumber, processWorkload);
     while (quitLoop == 0) {
         result = 0.0;
         currentValue = 0;
@@ -105,7 +142,8 @@ int main (void) {
                 else if (currentValue % dimensions == 0) {
                     finishedArray[currentValue] = processArray[currentValue];
                 } // if last column just copy number
-                else if (currentValue % dimensions == 5) {
+                else if (currentValue % dimensions == dimensions - 1) {
+                    //printf("Process %d, Current value  %d, actual number %f\n", processNumber, currentValue, processArray[currentValue]);
                     finishedArray[currentValue] = processArray[currentValue];
                 } else {
                     // calculate result (average 4 neighbour values)
@@ -121,7 +159,7 @@ int main (void) {
                         // only update finishedArray if there precision isn't met
                         finishedArray[currentValue] = result;
                     } else {
-                        //printf("Precision met for value: %f. Precision value: %f\n", processArray[currentValue], fabs(result - processArray[currentValue]));
+                        //printf("Process %d, Precision met for value: %f. Precision value: %f\n", processNumber, processArray[currentValue], fabs(result - processArray[currentValue]));
                         finishedArray[currentValue] = processArray[currentValue];
                     }
                 }
@@ -135,7 +173,9 @@ int main (void) {
             // send finishedArray to root node
             // get entire row (use getRow procedure)
             if (processNumber != 0) {
-                getRow(finishedArray, row, 1, dimensions * processWorkload);
+                // realloc to get more row memory
+                row = (double*)realloc(row, dimensions * processWorkload * sizeof(double));
+                getArray(row, finishedArray, 1, dimensions, dimensions * processWorkload);
                 MPI_Send(row, dimensions * processWorkload, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
             }
             // quit loops
@@ -158,9 +198,9 @@ int main (void) {
                 // first row is 0
                 getRow(finishedArray, row, 1, dimensions);
                 // send row to prev process
-                MPI_Send(row, dimensions, MPI_DOUBLE, totalProcesses - 2, 1, MPI_COMM_WORLD);
+                MPI_Send(row, dimensions, MPI_DOUBLE, processNumber - 1, 1, MPI_COMM_WORLD);
                 // recv first row update
-                MPI_Recv(row, dimensions, MPI_DOUBLE, totalProcesses - 2, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                MPI_Recv(row, dimensions, MPI_DOUBLE, processNumber - 1, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
                 // update row
                 updateRow(finishedArray, row, 0, dimensions);
             } // otherwise send both rows
@@ -187,21 +227,27 @@ int main (void) {
         }
     }
     
-    
     // process 0 merges arrays
     if (processNumber == 0) {
         // update first manually
-        getRow(finishedArray, row, 1, dimensions * processWorkload);
-        updateRow(array, row, 1, dimensions * processWorkload);
+        // realloc row to get more memory
+        row = (double*)realloc(row, dimensions * processWorkload * sizeof(double));
+        getArray(row, finishedArray, 1, dimensions, dimensions * processWorkload);
+        updateArray(array, row, 1, dimensions, dimensions * processWorkload);
+        int currentRow = 1 + processWorkload;
         // for each process, receieve their results
         for (int i = 1; i < totalProcesses; i++) {
-            MPI_Recv(processArray, (processWorkload + 1) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Recv(processArray, (totalProcessWorkload[i] + 1) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             // add received array to finishedArray
-            updateRow(array, processArray, (i * processWorkload) + 1, dimensions * processWorkload);
+            updateArray(array, processArray, currentRow, dimensions, dimensions * totalProcessWorkload[i]);
+            currentRow += totalProcessWorkload[i];
         }
+        time(&end);
+        double timeDifference = (double) difftime(end, start);
         // output merged array
         printf("\n");
         printArray(array, dimensions, dimensions);
+        printf("Total time taken: %f\n", timeDifference);
     }
 
     MPI_Finalize();
