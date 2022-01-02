@@ -60,7 +60,7 @@ int main (void) {
     MPI_Init(NULL, NULL);
     struct timeval start, end;
     gettimeofday(&start, NULL);
-    int dimensions = 19;
+    int dimensions = 200;
     double precision = 0.01;
     int totalProcesses;
     MPI_Comm_size(MPI_COMM_WORLD, &totalProcesses);
@@ -83,7 +83,7 @@ int main (void) {
     if (processNumber == 0) {
         // if process 0, setup array and partition into equal chunks and send to each process
         randomArrayGen(dimensions * dimensions, array);
-        //printArray(array, dimensions, dimensions);
+        printArray(array, dimensions, dimensions);
         for (int i = 0; i < totalProcesses; i++) {
             totalProcessWorkload[i] = (int)floor((dimensions-2) / totalProcesses);
         }
@@ -100,10 +100,10 @@ int main (void) {
         // get space for processArray, use workload of root process as no other process can have higher workload
         processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
         //printf("Load 1: %d, load 2: %d, load 3: %d, load 4: %d\n", processWorkload, totalProcessWorkload[1], totalProcessWorkload[2], totalProcessWorkload[3]);
-        int startRow = 0;
+        int startRow = processWorkload;
         // get array that is an equal partition of array for each process
-        for (int i = 0; i < totalProcesses; i++) {
-            printf("Process 0 here2\n");
+        for (int i = 1; i < totalProcesses; i++) {
+            //rintf("Process 0 here2\n");
             for (int j = 0; j < totalProcessWorkload[i] + 2; j++) {
                 for (int k = 0; k < dimensions; k++) {
                     processArray[(j * dimensions) + k] = array[((startRow + j) * dimensions) + k];
@@ -113,9 +113,17 @@ int main (void) {
             //printArray(processArray, totalProcessWorkload[i]+2, dimensions);
             startRow += totalProcessWorkload[i];
             // send array to the process so it can begin work
-            printf("Just about to send\n");
+            //printf("Just about to send\n");
+            //printf("Size: %d\n", (totalProcessWorkload[i] + 2) * dimensions);
             MPI_Send(processArray, (totalProcessWorkload[i] + 2) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
-            printf("Sent\n");
+            //printf("Sent\n");
+        }
+        // get processArray for root
+        startRow = 0;
+        for (int j = 0; j < processWorkload + 2; j++) {
+            for (int k = 0; k < dimensions; k++) {
+                processArray[(j * dimensions) + k] = array[((startRow + j) * dimensions) + k];
+            }
         }
     } else {
         // if not root process
@@ -124,11 +132,11 @@ int main (void) {
         free(array);
         free(totalProcessWorkload);
         processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
+        MPI_Recv(processArray, (processWorkload + 2) * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
     }
-    printf("Process %d here\n", processNumber);
-    MPI_Recv(processArray, (processWorkload + 2) * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    //printf("Process %d here\n", processNumber);
     finishedArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
-    printf("Hey I'm %d and my workload is %d\n", processNumber, processWorkload);
+    //printf("Hey I'm %d and my workload is %d\n", processNumber, processWorkload);
     while (quitLoop == 0) {
         result = 0.0;
         currentValue = 0;
@@ -181,7 +189,7 @@ int main (void) {
                 // realloc to get more row memory
                 row = (double*)realloc(row, dimensions * processWorkload * sizeof(double));
                 getArray(row, finishedArray, 1, dimensions, dimensions * processWorkload);
-                MPI_Send(row, processWorkload, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+                MPI_Send(row, processWorkload * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
             }
             // quit loops
             quitLoop = 1;
