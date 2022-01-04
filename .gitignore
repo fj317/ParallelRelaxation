@@ -1,6 +1,4 @@
 sharedMemory
 SharedMemoryParallel
-test
-test.c
+distributedMemoryParallel
 .DS_Store
-a.out
