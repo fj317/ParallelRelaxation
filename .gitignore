@@ -1,4 +1,4 @@
 sharedMemory
-SharedMemoryParallel
+sharedMemoryParallel
 distributedMemoryParallel
 .DS_Store
