@@ -138,23 +138,17 @@ int main (void) {
         }
         // get space for processArray, use workload of root process as no other process can have higher workload
         processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
-        //printf("Load 1: %d, load 2: %d, load 3: %d, load 4: %d\n", processWorkload, totalProcessWorkload[1], totalProcessWorkload[2], totalProcessWorkload[3]);
         int startRow = processWorkload;
         // get array that is an equal partition of array for each process
         for (int i = 1; i < totalProcesses; i++) {
             for (int j = 0; j < totalProcessWorkload[i] + 2; j++) {
                 for (int k = 0; k < dimensions; k++) {
                     processArray[(j * dimensions) + k] = array[((startRow + j) * dimensions) + k];
-                    //printf("processArray: %d. Array: %d\n", (j * dimensions) + k, ((startRow + j) * dimensions) + k);
                 }
             }
-            //printArray(processArray, totalProcessWorkload[i]+2, dimensions);
             startRow += totalProcessWorkload[i];
             // send array to the process so it can begin work
-            //printf("Just about to send\n");
-            //printf("Size: %d\n", (totalProcessWorkload[i] + 2) * dimensions);
             MPI_Send(processArray, (totalProcessWorkload[i] + 2) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
-            //printf("Sent\n");
         }
         // get processArray for root
         startRow = 0;
@@ -176,14 +170,12 @@ int main (void) {
     }
     // make space for the finished array (same size as processArray)
     finishedArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
-    //printf("Hey I'm %d and my workload is %d\n", processNumber, processWorkload);
     while (quitLoop == 0) {
         result = 0.0;
         // initialise to 0 as starting from first value
         currentValue = 0;
         // initialise to true initially
         precisionMet = 1;
-        //printf("I'm %d, cur value %f\n", processNumber, processArray[currentValue]);
         for (int i = 0; i < processWorkload + 2; i++) {
             for (int j = 0; j < dimensions; j++) {
                 // if first row just copy the number 
@@ -197,13 +189,10 @@ int main (void) {
                     finishedArray[currentValue] = processArray[currentValue];
                 } // if last column just copy number
                 else if (currentValue % dimensions == dimensions - 1) {
-                    //printf("Process %d, Current value  %d, actual number %f\n", processNumber, currentValue, processArray[currentValue]);
                     finishedArray[currentValue] = processArray[currentValue];
                 } else {
                     // calculate result (average 4 neighbour values)
                     result = (processArray[currentValue-1] + processArray[currentValue+1] + processArray[currentValue-dimensions] + processArray[currentValue+dimensions]) / 4.0;
-                    //printf("I'm %d, Curr Value: %f , Result %f --- 1: %f, 2: %f, 3: %f, 4: %f\n", processNumber, processArray[currentValue], result, processArray[currentValue-1], processArray[currentValue+1], processArray[currentValue-dimensions], processArray[currentValue+dimensions]);
-                    //printf("I'm %d and got result %f\n", processNumber, result);
                     // if precision isn't met for current value
                     // take absolute value of difference in case it is negative
                     if (fabs(result - processArray[currentValue]) > precision) {
@@ -213,7 +202,6 @@ int main (void) {
                         // only update finishedArray if there precision isn't met
                         finishedArray[currentValue] = result;
                     } else {
-                        //printf("Process %d, Precision met for value: %f. Precision value: %f\n", processNumber, processArray[currentValue], fabs(result - processArray[currentValue]));
                         finishedArray[currentValue] = processArray[currentValue];
                     }
                 }
@@ -225,10 +213,10 @@ int main (void) {
         MPI_Allreduce(&precisionMet, &recvPrecisionMet, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
         if (recvPrecisionMet == 1) {
             // send finishedArray to root node
-            // get entire row (use getRow procedure)
             if (processNumber != 0) {
                 // realloc to get more row memory
                 sendFirstRow = (double*)realloc(sendFirstRow, (unsigned long) dimensions * (unsigned long) processWorkload * sizeof(double));
+                // get all working rows from finishedArray 
                 getArray(sendFirstRow, finishedArray, 1, dimensions, dimensions * processWorkload);
                 MPI_Send(sendFirstRow, processWorkload * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
             }
