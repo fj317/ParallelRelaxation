@@ -7,8 +7,10 @@
 // function to randomly generate double values and put them into array
 void randomArrayGen(int size, double *array) {
     double randomValue;
+    // uses fixed seed so same numbers generated each time
     srand(5);
     for (int i = 0; i < size; i++) {
+        // only creates numbers 0-1
         randomValue = (rand() / (double)RAND_MAX);
         array[i] = randomValue;
     }
@@ -63,16 +65,16 @@ void updateArray(double *array, double*valueArray, int rowNum, int dimensions, i
 
 
 int main (void) {
-    // inits the MPI library
+    // initialise the MPI library
     MPI_Init(NULL, NULL);
     // used for timings
     struct timeval start, end;
     gettimeofday(&start, NULL);
     // the dimensions of the array
-    int dimensions = 100;
+    int dimensions = 1000;
     // the desired precision for the results to fall into
     double precision = 0.01;
-    // the total number if processes in use
+    // the total number of processes in use
     int totalProcesses;
     // gets the total number of processes
     MPI_Comm_size(MPI_COMM_WORLD, &totalProcesses);
@@ -108,14 +110,17 @@ int main (void) {
     int currentValue;
     // the result of the averaging
     double result;
+    // number of loop iterations done so far, used to reduce communciation when its not needed
+    int loopIterations = 0;
     // if root or last node, can free memory as only send and receive 1 row
     if (processNumber == 0 || processNumber == totalProcesses - 1) {
         free(recvSecondRow);
         free(sendSecondRow);
     }
 
+    // if process 0, setup array and partition into equal chunks and send to each process
     if (processNumber == 0) {
-        // if process 0, setup array and partition into equal chunks and send to each process
+        // generate the array
         randomArrayGen(dimensions * dimensions, array);
         printArray(array, dimensions, dimensions);
         // set the workload for each process to the rounded down value of the number of 'working' rows (non-boundary rows) divided by the number of processes
@@ -136,7 +141,7 @@ int main (void) {
         for (int i = 1; i < totalProcesses; i++) {
             MPI_Send(&totalProcessWorkload[i], 1, MPI_INT, i, 1, MPI_COMM_WORLD);
         }
-        // get space for processArray, use workload of root process as no other process can have higher workload
+        // get space for processArray, use workload of root process as size because no other process can have higher workload
         processArray = malloc((unsigned long)(processWorkload + 2) * (unsigned long)dimensions * sizeof(double));
         int startRow = processWorkload;
         // get array that is an equal partition of array for each process
@@ -147,10 +152,10 @@ int main (void) {
                 }
             }
             startRow += totalProcessWorkload[i];
-            // send array to the process so it can begin work
+            // send array to each process so it can begin work
             MPI_Send(processArray, (totalProcessWorkload[i] + 2) * dimensions, MPI_DOUBLE, i, 1, MPI_COMM_WORLD);
         }
-        // get processArray for root
+        // get processArray for root node
         startRow = 0;
         for (int j = 0; j < processWorkload + 2; j++) {
             for (int k = 0; k < dimensions; k++) {
@@ -159,6 +164,7 @@ int main (void) {
         }
     } else {
         // if not root process
+        // receive the workload
         MPI_Recv(&processWorkload, 1, MPI_INT, 0, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
         // can free array as only used by root node
         free(array);
@@ -176,7 +182,9 @@ int main (void) {
         currentValue = 0;
         // initialise to true initially
         precisionMet = 1;
+        // for each row
         for (int i = 0; i < processWorkload + 2; i++) {
+            // for each dimension
             for (int j = 0; j < dimensions; j++) {
                 // if first row just copy the number 
                 if (currentValue < dimensions) {
@@ -202,6 +210,7 @@ int main (void) {
                         // only update finishedArray if there precision isn't met
                         finishedArray[currentValue] = result;
                     } else {
+                        // if precision is met just add the original value from processArray
                         finishedArray[currentValue] = processArray[currentValue];
                     }
                 }
@@ -209,22 +218,31 @@ int main (void) {
                 currentValue++;
             }
         }
-        // use MPI_allreduce to find whether precision is met for all processes
-        MPI_Allreduce(&precisionMet, &recvPrecisionMet, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
-        if (recvPrecisionMet == 1) {
-            // send finishedArray to root node
-            if (processNumber != 0) {
-                // realloc to get more row memory
-                sendFirstRow = (double*)realloc(sendFirstRow, (unsigned long) dimensions * (unsigned long) processWorkload * sizeof(double));
-                // get all working rows from finishedArray 
-                getArray(sendFirstRow, finishedArray, 1, dimensions, dimensions * processWorkload);
-                MPI_Send(sendFirstRow, processWorkload * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
-            }
-            // quit loops
-            quitLoop = 1;
-        }        
+        // only call MPI_ALLreduce when there have been more than 10 loop iterations
+        // done to decrease overheads in idling when we know precision won't be met for the first 10 loops
+        if (loopIterations > 10) {
+            // use MPI_allreduce to find whether precision is met for all processes
+            MPI_Allreduce(&precisionMet, &recvPrecisionMet, 1, MPI_INT, MPI_LAND, MPI_COMM_WORLD);
+            // if precision met for all nodes
+            if (recvPrecisionMet == 1) {
+                // send finishedArray to root node
+                if (processNumber != 0) {
+                    // realloc to get more row memory
+                    sendFirstRow = (double*)realloc(sendFirstRow, (unsigned long) dimensions * (unsigned long) processWorkload * sizeof(double));
+                    // get all working rows from finishedArray 
+                    getArray(sendFirstRow, finishedArray, 1, dimensions, dimensions * processWorkload);
+                    // send array to root node so it can combine
+                    MPI_Send(sendFirstRow, processWorkload * dimensions, MPI_DOUBLE, 0, 1, MPI_COMM_WORLD);
+                }
+                // quit loops
+                quitLoop = 1;
+            }       
+        } 
+        // if more than 1 core being used then communcation it required
+        // if not quitting the loop send communication
         if (quitLoop == 0 && totalProcesses > 1) {
             // send first row to prev process, send last row to next process
+
             // if process 0 only send last row
             if (processNumber == 0) {
                 //post non-blocking recv and sends for adjacent process
@@ -268,6 +286,8 @@ int main (void) {
         void *tempPtr = processArray;
         processArray = finishedArray;
         finishedArray = tempPtr;
+        // add 1 to loopIteration as loop completed now
+        loopIterations++;
     }
     // process 0 merges arrays
     if (processNumber == 0) {
@@ -292,7 +312,7 @@ int main (void) {
         double timeDifference = (double) (end.tv_usec - start.tv_usec) / 1000000 + (double) (end.tv_sec - start.tv_sec);
         // output merged array
         printf("\n");
-        printArray(array, dimensions, dimensions);
+        //printArray(array, dimensions, dimensions);
         printf("Total time taken: %f\n", timeDifference);
         // free array memory
         free(array);
