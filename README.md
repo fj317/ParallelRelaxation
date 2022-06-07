@@ -3,7 +3,7 @@ Using C to perform relaxation technique in parallel to solve differential equati
 
 The three files all implement the same algorithm to solve differential equations by using a method known as relaxation technique. This is done by having an array of values and repeatedly replacing a value with the average of its four neighbours; excepting boundary values, which remain at fixed values. This is repeated until all values settle down to within a given precision.
 
-## sharedMemorySequential.c
+## sequentialProgram.c
 This program implements the algorithm described above sequentially. It takes **integerDimension** (the number of dimensions/size of the array) and **precision** (the required precision to reach) as input parameters. 
 
 ## sharedMemoryParallel.c

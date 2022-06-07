@@ -68,11 +68,8 @@ int main(void) {
         double result = 0.0;
         // average 4 numbers around it
         for (int i = 1; i < integerDimension - 1; i++) {
-            //printf("i is %d\n", i);
             for (int j = 1; j < integerDimension - 1; j++) {
                 result = (array[i-1][j] + array[i+1][j] + array[i][j-1] + array[i][j+1]) / 4;
-                //printf("Working on i: %d, j:%d. Result is %lf\n", i, j, result);
-                //printf("above: %lf, below %lf, left %lf, right %lf\n", array[i-1][j], array[i+1][j], array[i][j-1], array[i][j+1]);
                 // if precision met for every value
                 if (precisionCount >= (integerDimension-2)*(integerDimension-2)) {
                     goto printArray;
